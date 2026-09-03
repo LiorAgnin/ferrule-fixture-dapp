@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ferrule:loading</title>
+  <style>body{font:16px system-ui;margin:24px}button{margin:4px 8px 4px 0}pre{white-space:pre-wrap}</style>
+</head>
+<body>
+  <h1>Ferrule fixture dapp</h1>
+  <p>State is reported in <code>document.title</code>. See the README for the protocol.</p>
+  <button id="connect">Connect</button>
+  <button id="chain">Chain</button>
+  <button id="sign">Sign</button>
+  <pre id="log"></pre>
+  <script>
+    const log = (line) => { document.getElementById('log').textContent += line + '\n'; };
+    const setTitle = (t) => { document.title = t; log(t); };
+    const codeOf = (err) => (typeof err?.code === 'number' ? String(err.code) : 'unknown');
+    const utf8ToHex = (s) => '0x' + Array.from(new TextEncoder().encode(s))
+      .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+    let provider = null;
+    window.addEventListener('eip6963:announceProvider', (e) => {
+      if (e.detail?.info?.rdns === 'money.ferrule.app') provider = e.detail.provider;
+    });
+    window.dispatchEvent(new Event('eip6963:requestProvider'));
+
+    async function findProvider() {
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        if (provider) return provider;
+        if (window.ethereum?.isFerrule) return (provider = window.ethereum);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return null;
+    }
+
+    async function connect() {
+      try {
+        const accounts = await provider.request({ method: 'eth_requestAccounts', params: [] });
+        const addr = String(accounts?.[0] || '').toLowerCase();
+        if (!addr) {
+          setTitle('ferrule:error:unknown');
+          return;
+        }
+        setTitle('ferrule:connected:' + addr);
+      } catch (err) {
+        setTitle('ferrule:error:' + codeOf(err));
+      }
+    }
+
+    async function chain() {
+      try {
+        const hex = await provider.request({ method: 'eth_chainId', params: [] });
+        setTitle('ferrule:chain:' + String(hex));
+      } catch (err) {
+        setTitle('ferrule:error:' + codeOf(err));
+      }
+    }
+
+    async function sign() {
+      try {
+        const accounts = await provider.request({ method: 'eth_requestAccounts', params: [] });
+        const addr = String(accounts?.[0] || '');
+        if (!addr) {
+          setTitle('ferrule:error:unknown');
+          return;
+        }
+        const sig = await provider.request({
+          method: 'personal_sign',
+          params: [utf8ToHex('ferrule-fixture'), addr],
+        });
+        const raw = String(sig);
+        const hex = raw.toLowerCase().startsWith('0x') ? raw.slice(2) : raw;
+        setTitle('ferrule:signed:' + hex.slice(0, 10));
+      } catch (err) {
+        setTitle('ferrule:error:' + codeOf(err));
+      }
+    }
+
+    document.getElementById('connect').onclick = connect;
+    document.getElementById('chain').onclick = chain;
+    document.getElementById('sign').onclick = sign;
+
+    (async () => {
+      setTitle('ferrule:loading');
+      const p = await findProvider();
+      setTitle(p && p.isFerrule === true ? 'ferrule:ready' : 'ferrule:no-provider');
+      if (!p || p.isFerrule !== true) return;
+      const auto = new URLSearchParams(location.search).get('auto');
+      if (auto === 'connect') await connect();
+      if (auto === 'chain') await chain();
+      if (auto === 'sign') await sign();
+    })();
+  </script>
+</body>
+</html>
